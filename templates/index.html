@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="pt-br">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Status das VPS</title>
+    <style>
+      :root {
+        --bg:#0b1324; --card:#121c33; --muted:#8aa1c1; --ok:#23d18b; --down:#ff6b6b; --edge:#233252;
+        --txt:#eaf2ff; --accent:#8ab4ff;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg:#f7fbff; --card:#ffffff; --muted:#4b5b70; --ok:#0a8f5b; --down:#c22; --edge:#dfe8f5;
+          --txt:#0b1324; --accent:#0b63ff;
+        }
+      }
+      * { box-sizing: border-box; }
+      html,body { height:100%; }
+      body { margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background: var(--bg); color: var(--txt); }
+      a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+      .wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+
+      .header { display:flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+      .muted { color: var(--muted); }
+
+      .toolbar { display:flex; gap:8px; flex-wrap: wrap; margin: 12px 0; }
+      .card { background: var(--card); border:1px solid var(--edge); border-radius: 16px; padding: 12px; }
+
+      .kpis { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin: 10px 0 14px; }
+      .kpi { background: var(--card); border:1px solid var(--edge); border-radius: 14px; padding: 10px 12px; }
+      .kpi h3 { margin:0; font-size: .9rem; color: var(--muted); }
+      .kpi p { margin:.25rem 0 0; font-size: 1.25rem; font-weight: 600; }
+
+      .btn { border:1px solid var(--edge); background: var(--card); color: var(--txt); padding:.5rem .75rem; border-radius: 10px; cursor:pointer; }
+      .btn:hover { filter: brightness(1.08); }
+      .btn.active { outline: 2px solid #8ab4ff55; }
+      .btn.ghost { background: transparent; }
+
+      .input { border:1px solid var(--edge); background: var(--card); color: var(--txt); padding:.55rem .7rem; border-radius: 10px; min-width: 240px; }
+      .switch { display:inline-flex; align-items:center; gap:6px; padding:.45rem .6rem; border:1px solid var(--edge); border-radius: 10px; background: var(--card); }
+
+      table { width:100%; border-collapse: collapse; }
+      thead th { font-size:.9rem; color: var(--muted); text-align:left; padding: 10px 12px; position: sticky; top:0; background: var(--card); border-bottom:1px solid var(--edge); }
+      tbody td { padding: 10px 12px; border-top:1px solid var(--edge); }
+      tbody tr:hover { background: rgba(138,180,255,0.06); }
+      .status { display:inline-flex; align-items:center; gap:8px; }
+      .dot { width: 10px; height:10px; border-radius:999px; background: #999; border:1px solid #0000; }
+      .dot.ok { background: var(--ok); }
+      .dot.down { background: var(--down); }
+      .pill { border:1px solid var(--edge); padding:.2rem .45rem; border-radius: 999px; font-size:.8rem; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="header">
+        <h2 style="margin:0">Status das VPS</h2>
+        <div id="lastUpdate" class="muted">—</div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi"><h3>Online</h3><p id="kOnline">0</p></div>
+        <div class="kpi"><h3>Offline</h3><p id="kOffline">0</p></div>
+        <div class="kpi"><h3>Total</h3><p id="kTotal">0</p></div>
+      </div>
+
+      <div class="toolbar">
+        <input id="q" class="input" placeholder="Filtrar por usuário/label, host ou porta">
+        <div class="switch">
+          <button class="btn active" data-filter="all">Todos</button>
+          <button class="btn" data-filter="up">Somente online</button>
+          <button class="btn" data-filter="down">Somente offline</button>
+        </div>
+        <button id="refresh" class="btn">Atualizar agora</button>
+        <div class="switch">
+          <input type="checkbox" id="auto" checked>
+          <label for="auto" class="muted">Auto atualizar (20s)</label>
+        </div>
+      </div>
+
+      <div class="card" style="overflow:auto; max-height: 70vh;">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>ID</th>
+              <th>Usuário/Label</th>
+              <th>Host</th>
+              <th>Porta</th>
+              <th>Gráfico</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rows %}
+            <tr data-id="{{ r.id }}" data-host="{{ r.host }}" data-port="{{ r.port }}" data-user="{{ r.user|lower }}">
+              <td><span class="status"><span class="dot"></span><span class="pill">checando…</span></span></td>
+              <td>{{ r.id }}</td>
+              <td>{{ r.user }}</td>
+              <td>{{ r.host }}</td>
+              <td>{{ r.port }}</td>
+              <td><a class="pill" href="/vps/{{ r.host }}/{{ r.port }}">ver gráfico</a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const q = document.getElementById('q');
+      const lastUpdate = document.getElementById('lastUpdate');
+      const kOnline = document.getElementById('kOnline');
+      const kOffline = document.getElementById('kOffline');
+      const kTotal = document.getElementById('kTotal');
+      const tbl = document.getElementById('tbl').querySelector('tbody');
+      const filterBtns = [...document.querySelectorAll('[data-filter]')];
+      const refreshBtn = document.getElementById('refresh');
+      const auto = document.getElementById('auto');
+
+      let latest = [];
+      let filterMode = 'all';
+
+      function setFilter(btn) {
+        filterBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        filterMode = btn.getAttribute('data-filter');
+        render();
+      }
+      filterBtns.forEach(b => b.addEventListener('click', () => setFilter(b)));
+
+      function nowStr() {
+        const d = new Date();
+        const dd = String(d.getDate()).padStart(2,'0');
+        const mm = String(d.getMonth()+1).padStart(2,'0');
+        const yy = d.getFullYear();
+        const hh = String(d.getHours()).padStart(2,'0');
+        const mi = String(d.getMinutes()).padStart(2,'0');
+        const ss = String(d.getSeconds()).padStart(2,'0');
+        return `${dd}/${mm}/${yy} ${hh}:${mi}:${ss}`;
+      }
+
+      function render() {
+        const qval = q.value.trim().toLowerCase();
+        let on = 0, off = 0;
+        const map = new Map(latest.map(r => [String(r.id), r]));
+
+        for (const tr of tbl.querySelectorAll('tr')) {
+          const id = tr.getAttribute('data-id');
+          const host = tr.getAttribute('data-host').toLowerCase();
+          const user = tr.getAttribute('data-user');
+          const port = tr.getAttribute('data-port');
+
+          const badge = tr.querySelector('.pill');
+          const dot = tr.querySelector('.dot');
+
+          const rec = map.get(id);
+          if (rec) {
+            const ok = !!rec.online;
+            if (ok) { on++; dot.className = 'dot ok'; badge.textContent = 'online'; }
+            else { off++; dot.className = 'dot down'; badge.textContent = 'offline'; }
+          }
+
+          const statusMatch = filterMode === 'all' || (filterMode === 'up' && rec && rec.online) || (filterMode === 'down' && rec && !rec.online);
+          const qmatch = !qval || user.includes(qval) || host.includes(qval) || String(port).includes(qval);
+
+          tr.style.display = (statusMatch && qmatch) ? '' : 'none';
+        }
+
+        kOnline.textContent = on;
+        kOffline.textContent = off;
+        kTotal.textContent = tbl.querySelectorAll('tr').length;
+        lastUpdate.textContent = `Atualizado em ${nowStr()}`;
+      }
+
+      async function loadStatus() {
+        try {
+          const res = await fetch('/api/status');
+          latest = await res.json();
+          render();
+        } catch (e) {
+          console.error('Falha ao carregar status', e);
+        }
+      }
+
+      refreshBtn.addEventListener('click', loadStatus);
+      q.addEventListener('input', render);
+
+      loadStatus();
+      let timer = setInterval(loadStatus, 20000);
+      auto.addEventListener('change', () => {
+        if (auto.checked) timer = setInterval(loadStatus, 20000);
+        else clearInterval(timer);
+      });
+    </script>
+  </body>
+</html>

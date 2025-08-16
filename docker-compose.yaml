@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      # args:
+      #   REPO_URL: https://github.com/<seu-usuario>/vps-status-site.git  # <-- troque pelo seu repo
+      #   REPO_REF: main
+    environment:
+      # app
+      APP_PORT: ${APP_PORT}
+      SAMPLE_INTERVAL_SEC: ${SAMPLE_INTERVAL_SEC}
+      START_PORT: ${START_PORT}
+      END_PORT: ${END_PORT}
+      START_ID: ${START_ID}
+      VPS_HOST: ${VPS_HOST}
+      STATIC_TARGETS: ${STATIC_TARGETS}
+      # db
+      DB_BACKEND: ${DB_BACKEND}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
+volumes:
+  db_data:
+

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="pt-br">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Uptime VPS {{ host }}:{{ port }}</title>
+    <style>
+      :root { --bg:#0b1324; --card:#121c33; --muted:#8aa1c1; --ok:#23d18b; --edge:#233252; }
+      @media (prefers-color-scheme: light) {
+        :root { --bg:#f7fbff; --card:#ffffff; --muted:#4b5b70; --ok:#0a8f5b; --edge:#dfe8f5; }
+      }
+      html,body { height:100%; }
+      body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; margin:0; padding:0; background:var(--bg); color:#eaf2ff; }
+      .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+      a { color:#8ab4ff; text-decoration:none } a:hover { text-decoration: underline }
+      .head { display:flex; align-items:center; gap:12px; margin-bottom: 8px; }
+      .muted { color: var(--muted); }
+      .chips { display:flex; gap:8px; flex-wrap: wrap; margin: 8px 0 16px 0; }
+      .chip { border:1px solid var(--edge); background: var(--card); padding:.4rem .6rem; border-radius:999px; }
+      .toolbar { display:flex; align-items:center; gap:8px; margin: 10px 0 12px; flex-wrap: wrap; }
+      .btn { border:1px solid var(--edge); background: var(--card); color:#eaf2ff; padding:.45rem .75rem; border-radius: 10px; cursor: pointer; }
+      .btn:hover { filter: brightness(1.08); }
+      .btn.active { outline: 2px solid #8ab4ff55; }
+      .btn.ghost { background: transparent; }
+      .card { background: var(--card); border:1px solid var(--edge); border-radius: 16px; padding: 12px; }
+      #chart { width:100%; height: 360px; }
+      #empty { color: var(--muted); margin-top: 8px; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="head">
+        <a href="/">← Voltar</a>
+        <h2 style="margin:0">VPS {{ host }}:{{ port }}</h2>
+      </div>
+      <div class="muted">Label: {{ user }}</div>
+
+      <div class="chips">
+        <span class="chip">Uptime 1h: {{ 'coletando…' if p1 is none else ('%.1f%%' % p1) }}</span>
+        <span class="chip">Uptime 24h: {{ 'coletando…' if p24 is none else ('%.1f%%' % p24) }}</span>
+        <span class="chip">Uptime 7d: {{ 'coletando…' if p7 is none else ('%.1f%%' % p7) }}</span>
+        <span class="chip muted">Dica: use scroll para zoom e arraste para pan</span>
+      </div>
+
+      <div class="toolbar">
+        <button class="btn active" data-window="1h">1h</button>
+        <button class="btn" data-window="24h">24h</button>
+        <button class="btn" data-window="7d">7d</button>
+        <button id="resetZoom" class="btn ghost">Reset zoom</button>
+        <span id="uptimeSel" class="muted" style="margin-left:8px"></span>
+      </div>
+
+      <div class="card">
+        <canvas id="chart"></canvas>
+        <div id="empty" style="display:none">Ainda coletando dados… volte em ~1 minuto para ver o gráfico.</div>
+      </div>
+    </div>
+
+    <script>
+      const host = {{ host|tojson }};
+      const port = {{ port|tojson }};
+      let activeWindow = '1h';
+
+      function fmtTime(epoch) {
+        const d = new Date(epoch * 1000);
+        const y = d.getFullYear();
+        const M = String(d.getMonth()+1).padStart(2,'0');
+        const D = String(d.getDate()).padStart(2,'0');
+        const h = String(d.getHours()).padStart(2,'0');
+        const m = String(d.getMinutes()).padStart(2,'0');
+        const s = String(d.getSeconds()).padStart(2,'0');
+        return `${D}/${M}/${y} ${h}:${m}:${s}`;
+      }
+      function calcUptimePct(series) {
+        if (!series.length) return null;
+        let up = 0;
+        for (const p of series) up += p.v ? 1 : 0;
+        return (up / series.length) * 100;
+      }
+
+      let chart;
+      function makeGradient(ctx) {
+        const g = ctx.createLinearGradient(0, 0, 0, ctx.canvas.height);
+        g.addColorStop(0, 'rgba(35, 209, 139, 0.35)');
+        g.addColorStop(1, 'rgba(35, 209, 139, 0.02)');
+        return g;
+      }
+
+      async function loadSeries(win) {
+        const res = await fetch(`/api/series?host=${encodeURIComponent(host)}&port=${port}&window=${win}`);
+        const data = await res.json();
+        const emptyEl = document.getElementById('empty');
+        const uptimeSel = document.getElementById('uptimeSel');
+
+        if (!data.length) {
+          emptyEl.style.display = 'block';
+          if (chart) { chart.destroy(); }
+          uptimeSel.textContent = '';
+          return;
+        } else {
+          emptyEl.style.display = 'none';
+        }
+
+        const points = data.map(d => ({x: d.t, y: d.v}));
+        const pct = calcUptimePct(data);
+        uptimeSel.textContent = `Uptime ${win}: ${pct.toFixed(1)}%`;
+
+        const ctx = document.getElementById('chart').getContext('2d');
+        const gradient = makeGradient(ctx);
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+          type: 'line',
+          data: { datasets: [{
+            label: 'Online (1) / Offline (0)',
+            data: points,
+            stepped: true,
+            borderWidth: 2,
+            pointRadius: 0,
+            borderColor: '#23d18b',
+            backgroundColor: gradient,
+            fill: true,
+            tension: 0
+          }]},
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            parsing: false,
+            scales: {
+              y: { min: 0, max: 1, ticks: { stepSize: 1 }, grid: { color: 'rgba(138,161,193,0.15)' } },
+              x: {
+                type: 'linear',
+                ticks: {
+                  callback: (val) => {
+                    const d = new Date(val * 1000);
+                    const hh = String(d.getHours()).padStart(2,'0');
+                    const mm = String(d.getMinutes()).padStart(2,'0');
+                    return hh + ':' + mm;
+                  }
+                },
+                grid: { color: 'rgba(138,161,193,0.08)' }
+              }
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  title: (items) => fmtTime(items[0].parsed.x),
+                  label: (item) => item.parsed.y ? 'Online' : 'Offline'
+                }
+              },
+              zoom: {
+                zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+                pan: { enabled: true, mode: 'x' }
+              },
+              decimation: { enabled: true, algorithm: 'min-max' }
+            },
+            interaction: { intersect: false }
+          }
+        });
+      }
+
+      function setActive(btn) {
+        document.querySelectorAll('.btn[data-window]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+
+      document.querySelectorAll('.btn[data-window]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const win = btn.getAttribute('data-window');
+          activeWindow = win;
+          setActive(btn);
+          loadSeries(win);
+        });
+      });
+      document.getElementById('resetZoom').addEventListener('click', () => { if (chart) chart.resetZoom(); });
+
+      loadSeries(activeWindow);
+      setInterval(() => loadSeries(activeWindow), 60000);
+    </script>
+  </body>
+</html>

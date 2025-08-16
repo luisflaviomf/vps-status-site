@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Docker
+docker-data/
+*.log
+
+# Banco de dados
+*.sqlite3
+
+# Ambiente
+.env
+
+# Outros
+.DS_Store
+EOF
